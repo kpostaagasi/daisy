@@ -7,6 +7,7 @@ import SwiftUI
 struct DaisySettingsView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var loginItem = LoginItemController.shared
+    @ObservedObject var updates = UpdateController.shared
     @State private var selectedTab: Int = 0
     @State private var selectedFormat: ConversionFormat = .webp
     @State private var formatOptions: ConversionOptions = AppSettings.shared.options(for: .webp)
@@ -98,9 +99,14 @@ struct DaisySettingsView: View {
                     }
 
                     HStack {
-                        Text("Sound and haptic feedback")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Haptic feedback")
+                            Text("Trackpad clicks as you move across petals, switch modes and drop files.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
                         Spacer()
-                        Toggle("", isOn: $settings.soundsAndHapticsEnabled)
+                        Toggle("", isOn: $settings.hapticFeedbackEnabled)
                             .labelsHidden()
                     }
 
@@ -142,6 +148,28 @@ struct DaisySettingsView: View {
                 .padding(8)
             }
 
+            GroupBox(label: Label("Updates", systemImage: "arrow.down.circle")) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Automatically check for updates")
+                        Spacer()
+                        Toggle("", isOn: $settings.automaticallyChecksForUpdates)
+                            .labelsHidden()
+                    }
+                    HStack {
+                        Text(updateStatusText)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button("Check Now") {
+                            updates.check(userInitiated: true)
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                .padding(8)
+            }
+
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.seal.fill")
                     .foregroundColor(.green)
@@ -150,6 +178,16 @@ struct DaisySettingsView: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+
+    private var updateStatusText: String {
+        var text = "Daisy \(updates.currentVersion)"
+        if let release = updates.availableRelease {
+            text += " · \(release.version) available"
+        } else if let last = updates.lastCheck {
+            text += " · checked \(last.formatted(.relative(presentation: .named)))"
+        }
+        return text
     }
 
     private func shortcutRow(title: String, mode: ConversionFanMode) -> some View {

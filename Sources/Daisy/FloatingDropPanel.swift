@@ -106,6 +106,11 @@ final class FloatingDropPanel {
             }
         }
 
+        if alreadyVisible, mode != fanView.fanMode {
+            FanHaptics.perform(.modeChange)
+        } else if !alreadyVisible, !urls.isEmpty {
+            FanHaptics.perform(.appear)
+        }
         fanView.configure(urls: urls, mode: mode, animated: true)
 
         if !alreadyVisible {

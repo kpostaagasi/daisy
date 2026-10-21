@@ -68,6 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.welcomeWindow.show()
         }
 
+        UpdateController.shared.isBusy = { [weak self] in self?.store.isBusy ?? false }
+        UpdateController.shared.start()
+
         // Show the radial fan in the top-right corner on launch or show Welcome on first run
         if !settings.hasCompletedWelcome {
             welcomeWindow.show()

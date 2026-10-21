@@ -9,14 +9,14 @@ them onto a blooming "fan" of conversion targets.
 
 No paywall, no usage counting, no purchase service — everything is free.
 
-## Status (v0.2.1)
+## Status (v0.2.2)
 
 | Tangerine feature | Daisy | Notes |
 | --- | --- | --- |
 | Global drag shortcut detector (`DragGestureMonitor`) | ✅ `DragGestureMonitor` | Polls drag pasteboard + `⌥` / `⌘` / `⌃` modifiers at 60Hz while dragging |
 | 3 Radial Fan Modes (`Conversions`, `Tools`, `Actions`) | ✅ `ConversionFanMode` | Context-aware petals filtered by dragged file types |
 | Annular sector petals (`FormatDropTarget`) | ✅ `FanView.swift` | 372×372 overlay at cursor, Glass & Metallic themes, center hub |
-| Fan highlight sound & haptics | ✅ `FanHighlightSoundPlayer` | Alignment haptics + audio tick on petal hover |
+| Fan feedback | ✅ `FanHaptics` | Silent; trackpad haptics for petal hover, mode switch, fan open and drop |
 | Floating File Shelf ("Float" & Paperclip tab) | ✅ `FloatingFileWindowController` | Edge-snapping collapsible shelf, QuickLook thumbnails, drag-out |
 | Operation progress HUD (`OrangeIndeterminateProgressView`) | ✅ `OperationProgressWindowController` | Floating glass progress bar + Finder reveal on completion |
 | Image, Audio, Video, Document, Subtitle, Archive conversions | ✅ `ConversionEngine` | 35+ formats (`WebP`, `PNG`, `JPG`, `HEIC`, `PDF`, `DOCX`, `MP4`, `GIF`, `MP3`, `WAV`, `SRT`, `VTT`, `ZIP`…) |

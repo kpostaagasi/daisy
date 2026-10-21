@@ -393,8 +393,8 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    @Published var soundsAndHapticsEnabled: Bool {
-        didSet { UserDefaults.standard.set(soundsAndHapticsEnabled, forKey: "soundsAndHapticsEnabled") }
+    @Published var hapticFeedbackEnabled: Bool {
+        didSet { UserDefaults.standard.set(hapticFeedbackEnabled, forKey: "hapticFeedbackEnabled") }
     }
 
     @Published var floatWheelBehavior: FloatWheelBehavior {
@@ -455,14 +455,17 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(hasCompletedWelcome, forKey: "hasCompletedWelcome") }
     }
 
+    @Published var automaticallyChecksForUpdates: Bool {
+        didSet { UserDefaults.standard.set(automaticallyChecksForUpdates, forKey: "automaticallyChecksForUpdates") }
+    }
+
     init() {
         let d = UserDefaults.standard
         conversionFanTheme = ConversionFanTheme(rawValue: d.string(forKey: "conversionFanTheme") ?? "") ?? .glass
-        if d.object(forKey: "soundsAndHapticsEnabled") != nil {
-            soundsAndHapticsEnabled = d.bool(forKey: "soundsAndHapticsEnabled")
-        } else {
-            soundsAndHapticsEnabled = true
-        }
+        // Carries over the old combined sound-and-haptics switch.
+        hapticFeedbackEnabled = d.object(forKey: "hapticFeedbackEnabled") as? Bool
+            ?? d.object(forKey: "soundsAndHapticsEnabled") as? Bool
+            ?? true
         floatWheelBehavior = FloatWheelBehavior(rawValue: d.string(forKey: "floatWheelBehavior") ?? "") ?? .addToExisting
 
         var storedDragMasks: [ConversionFanMode: UInt] = [:]
@@ -496,6 +499,7 @@ final class AppSettings: ObservableObject {
         outputDirectory = d.string(forKey: "outputDirectory") ?? ""
         timeoutSeconds = d.object(forKey: "timeoutSeconds") as? Int ?? 300
         hasCompletedWelcome = d.bool(forKey: "hasCompletedWelcome")
+        automaticallyChecksForUpdates = d.object(forKey: "automaticallyChecksForUpdates") as? Bool ?? true
     }
 
     func options(for format: ConversionFormat) -> ConversionOptions {

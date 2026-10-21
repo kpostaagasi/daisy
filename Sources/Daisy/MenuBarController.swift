@@ -195,6 +195,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         aboutRow.target = self
         menu.addItem(aboutRow)
 
+        if let release = UpdateController.shared.availableRelease {
+            let updateRow = NSMenuItem(title: "Update to Daisy \(release.version)…", action: #selector(showUpdate), keyEquivalent: "")
+            updateRow.target = self
+            updateRow.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: "Update available")
+            menu.addItem(updateRow)
+        } else {
+            let checkRow = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            checkRow.target = self
+            menu.addItem(checkRow)
+        }
+
         menu.addItem(.separator())
 
         let quitRow = NSMenuItem(title: "Quit Daisy", action: #selector(quit), keyEquivalent: "q")
@@ -229,6 +240,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func showAbout() {
         NSApp.orderFrontStandardAboutPanel(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func checkForUpdates() {
+        UpdateController.shared.check(userInitiated: true)
+    }
+
+    @objc private func showUpdate() {
+        UpdateController.shared.showWindow(activate: true)
     }
 
     @objc private func quit() {

@@ -2,22 +2,38 @@
 import AppKit
 import QuartzCore
 
-// MARK: - Highlight Sound & Haptics Player (matching Tangerine's FanHighlightSoundPlayer)
+// MARK: - Haptics (Force Touch trackpads; Daisy plays no sounds)
 
-final class FanHighlightSoundPlayer {
-    static let shared = FanHighlightSoundPlayer()
-    private var lastPlayUptime: TimeInterval = 0
+enum FanHaptics {
+    enum Event {
+        /// The pointer crosses onto a petal: the lightest tick, like a detent.
+        case highlight
+        /// The fan switches between Convert, Tools and Actions.
+        case modeChange
+        /// The fan opens under a drag.
+        case appear
+        /// Files are dropped or a petal is clicked.
+        case commit
+    }
 
-    func playHighlightFeedback() {
-        guard AppSettings.shared.soundsAndHapticsEnabled else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard now - lastPlayUptime >= 0.035 else { return }
-        lastPlayUptime = now
+    private static var lastHighlight: TimeInterval = 0
 
-        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        if let sound = NSSound(named: NSSound.Name("Tink")) ?? NSSound(named: NSSound.Name("Pop")) {
-            sound.volume = 0.22
-            sound.play()
+    static func perform(_ event: Event) {
+        guard AppSettings.shared.hapticFeedbackEnabled else { return }
+        let performer = NSHapticFeedbackManager.defaultPerformer
+        switch event {
+        case .highlight:
+            // Sweeping across several petals should feel like distinct detents, not a buzz.
+            let now = ProcessInfo.processInfo.systemUptime
+            guard now - lastHighlight >= 0.06 else { return }
+            lastHighlight = now
+            performer.perform(.alignment, performanceTime: .drawCompleted)
+        case .modeChange:
+            performer.perform(.levelChange, performanceTime: .drawCompleted)
+        case .appear:
+            performer.perform(.generic, performanceTime: .drawCompleted)
+        case .commit:
+            performer.perform(.levelChange, performanceTime: .now)
         }
     }
 }
@@ -772,7 +788,7 @@ final class FanPanelView: NSView {
 
     @objc private func modeButtonClicked(_ sender: NSButton) {
         guard let mode = ConversionFanMode(rawValue: sender.tag) else { return }
-        FanHighlightSoundPlayer.shared.playHighlightFeedback()
+        FanHaptics.perform(.modeChange)
         configure(urls: sourceURLs, mode: mode, animated: true)
     }
 
@@ -893,7 +909,7 @@ final class FanPanelView: NSView {
             highlightedTarget = hit
             highlightedTarget?.isHighlighted = true
             if hit != nil {
-                FanHighlightSoundPlayer.shared.playHighlightFeedback()
+                FanHaptics.perform(.highlight)
             }
             updateCenterLabel()
         }
@@ -921,7 +937,7 @@ final class FanPanelView: NSView {
         let dist = hypot(pt.x - center.x, pt.y - center.y)
 
         if let hit = petal(at: pt) {
-            FanHighlightSoundPlayer.shared.playHighlightFeedback()
+            FanHaptics.perform(.commit)
             guard !sourceURLs.isEmpty else {
                 onFileSelectionRequested?(hit.action)
                 return
@@ -933,7 +949,7 @@ final class FanPanelView: NSView {
             // Clicking the center hub cycles between Conversions -> Tools -> Actions
             let nextRaw = (fanMode.rawValue + 1) % ConversionFanMode.allCases.count
             if let nextMode = ConversionFanMode(rawValue: nextRaw) {
-                FanHighlightSoundPlayer.shared.playHighlightFeedback()
+                FanHaptics.perform(.modeChange)
                 configure(urls: sourceURLs, mode: nextMode, animated: true)
             }
         } else if dist > outerRadius + 12 && !modeSwitchContainer.frame.contains(pt) {
@@ -976,6 +992,7 @@ final class FanPanelView: NSView {
         let pt = convert(sender.draggingLocation, from: nil)
 
         if let hit = petal(at: pt) {
+            FanHaptics.perform(.commit)
             highlightedTarget?.isHighlighted = false
             highlightedTarget = nil
             sourceURLs = []
