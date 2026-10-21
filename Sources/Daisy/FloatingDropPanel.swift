@@ -141,7 +141,13 @@ final class FloatingDropPanel {
             guard let self else { return }
             self.pendingFileSelection = nil
             guard response == .OK, !openPanel.urls.isEmpty else { return }
-            self.onActionSelected?(openPanel.urls, action)
+            let urls = openPanel.urls
+            // The Tools fan shows one Crop petal; picked videos go to the video crop.
+            if case .fileTool(.cropImage) = action, FileTool.cropVideo.supports(urls: urls) {
+                self.onActionSelected?(urls, .fileTool(.cropVideo))
+            } else {
+                self.onActionSelected?(urls, action)
+            }
         }
     }
 

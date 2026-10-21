@@ -9,7 +9,7 @@ them onto a blooming "fan" of conversion targets.
 
 No paywall, no usage counting, no purchase service — everything is free.
 
-## Status (v0.2.0)
+## Status (v0.2.1)
 
 | Tangerine feature | Daisy | Notes |
 | --- | --- | --- |

@@ -803,7 +803,7 @@ struct FileToolOptions {
     var redactionStyle: RedactionStyle = .blur
     var redactions: [RedactionRectangle] = []
 
-    // Crop (normalized 0...1)
+    // Crop (normalized 0...1, origin top-left of the upright image/frame)
     var cropX: Double = 0.05
     var cropY: Double = 0.05
     var cropWidth: Double = 0.90

@@ -1,5 +1,6 @@
 // Daisy — QRCodeResultsWindowController and FileToolOptionsWindowController inspired by Tangerine.
 import AppKit
+import Combine
 import ImageIO
 import PDFKit
 import SwiftUI
@@ -267,9 +268,13 @@ final class QRCodeResultsWindowController: NSWindowController {
 final class FileToolOptionsModel: ObservableObject {
     let urls: [URL]
     let tool: FileTool
-    let imagePixelSize: CGSize?
+    /// Display-oriented pixel size of the first file (images now, video once its frame loads).
+    @Published var mediaPixelSize: CGSize?
     @Published var options = FileToolOptions()
     @Published var statusMessage: String = ""
+    @Published var cropPreview: CGImage?
+    @Published var cropPreviewFailed = false
+    @Published var cropAspect: CropAspect = .free
 
     var onApply: (([URL], FileTool, FileToolOptions) -> Void)?
     var onCancel: (() -> Void)?
@@ -277,7 +282,7 @@ final class FileToolOptionsModel: ObservableObject {
     init(urls: [URL], tool: FileTool) {
         self.urls = urls
         self.tool = tool
-        imagePixelSize = Self.pixelSize(of: urls.first)
+        mediaPixelSize = tool == .cropVideo ? nil : Self.pixelSize(of: urls.first)
         if tool == .organizePDF, let first = urls.first, let doc = PDFDocument(url: first) {
             options.pdfPageOrder = Array(0..<doc.pageCount)
         }
@@ -285,6 +290,13 @@ final class FileToolOptionsModel: ObservableObject {
             options.annotations = [
                 ImageAnnotation(kind: .arrow, startX: 0.20, startY: 0.25, endX: 0.55, endY: 0.60, text: "Highlight")
             ]
+        }
+        if tool == .cropImage || tool == .cropVideo {
+            options.cropX = 0
+            options.cropY = 0
+            options.cropWidth = 1
+            options.cropHeight = 1
+            loadCropPreview()
         }
     }
 
@@ -353,22 +365,6 @@ final class FileToolOptionsModel: ObservableObject {
         }
     }
 
-    /// Sets the crop to the largest centered area with the given width/height ratio.
-    func applyCenteredCrop(aspect: Double) {
-        guard let size = imagePixelSize, size.width > 0, size.height > 0 else { return }
-        var cropW = size.width
-        var cropH = size.height
-        if size.width / size.height > aspect {
-            cropW = size.height * aspect
-        } else {
-            cropH = size.width / aspect
-        }
-        options.cropX = (size.width - cropW) / (2 * size.width)
-        options.cropY = (size.height - cropH) / (2 * size.height)
-        options.cropWidth = cropW / size.width
-        options.cropHeight = cropH / size.height
-    }
-
     private static func pixelSize(of url: URL?) -> CGSize? {
         guard let url,
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -417,7 +413,8 @@ struct FileToolOptionsView: View {
                 case .frameImage:
                     frameImageEditor
                 case .cropImage, .cropVideo:
-                    cropEditor
+                    // Shown by CropEditorView; FileToolOptionsWindowController never routes them here.
+                    EmptyView()
                 case .annotateImage:
                     annotationEditor
                 case .createCollage:
@@ -555,34 +552,6 @@ struct FileToolOptionsView: View {
             sliderRow("Padding (px)", value: $model.options.imageFrame.padding, range: 12...140)
             sliderRow("Corner radius", value: $model.options.imageFrame.cornerRadius, range: 0...48)
             sliderRow("Shadow radius", value: $model.options.imageFrame.shadowRadius, range: 0...60)
-        }
-    }
-
-    private var cropEditor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("Preset:")
-                    .font(.system(size: 11, weight: .medium))
-                Button("Center 80%") {
-                    model.options.cropX = 0.10; model.options.cropY = 0.10
-                    model.options.cropWidth = 0.80; model.options.cropHeight = 0.80
-                }
-                .controlSize(.small)
-                Button("Square 1:1") {
-                    model.applyCenteredCrop(aspect: 1)
-                }
-                .controlSize(.small)
-                .disabled(model.imagePixelSize == nil)
-                Button("16:9") {
-                    model.applyCenteredCrop(aspect: 16.0 / 9.0)
-                }
-                .controlSize(.small)
-                .disabled(model.imagePixelSize == nil)
-            }
-            sliderRow("Left Offset", value: $model.options.cropX, range: 0.0...0.85)
-            sliderRow("Bottom Offset", value: $model.options.cropY, range: 0.0...0.85)
-            sliderRow("Width Share", value: $model.options.cropWidth, range: 0.10...1.0)
-            sliderRow("Height Share", value: $model.options.cropHeight, range: 0.10...1.0)
         }
     }
 
@@ -822,6 +791,7 @@ struct FileToolOptionsView: View {
 
 final class FileToolOptionsWindowController: NSWindowController {
     private let model: FileToolOptionsModel
+    private var sizeObserver: AnyCancellable?
 
     init(
         urls: [URL],
@@ -853,13 +823,36 @@ final class FileToolOptionsWindowController: NSWindowController {
         model.onCancel = { [weak self] in
             self?.window?.close()
         }
-        let hosting = NSHostingController(rootView: FileToolOptionsView(model: model))
-        panel.contentViewController = hosting
-        panel.setContentSize(NSSize(
-            width: max(460, hosting.view.fittingSize.width),
-            height: max(340, hosting.view.fittingSize.height)
-        ))
-        panel.center()
+        if tool == .cropImage || tool == .cropVideo {
+            panel.titleVisibility = .hidden
+            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                panel.standardWindowButton(button)?.isHidden = true
+            }
+            let hosting = NSHostingController(rootView: CropEditorView(model: model))
+            hosting.sizingOptions = []
+            panel.contentViewController = hosting
+            panel.setContentSize(model.cropWindowSize)
+            panel.center()
+            // Video frames load asynchronously; refit the window around the real aspect ratio.
+            sizeObserver = model.$mediaPixelSize
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak self, weak model] _ in
+                    guard let panel = self?.window, let model else { return }
+                    let center = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
+                    panel.setContentSize(model.cropWindowSize)
+                    panel.setFrameOrigin(NSPoint(x: center.x - panel.frame.width / 2,
+                                                 y: center.y - panel.frame.height / 2))
+                }
+        } else {
+            let hosting = NSHostingController(rootView: FileToolOptionsView(model: model))
+            panel.contentViewController = hosting
+            panel.setContentSize(NSSize(
+                width: max(460, hosting.view.fittingSize.width),
+                height: max(340, hosting.view.fittingSize.height)
+            ))
+            panel.center()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("unused") }

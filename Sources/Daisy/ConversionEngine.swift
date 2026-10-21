@@ -1396,7 +1396,7 @@ final class ConversionEngine {
         let h = srcCG.height
         // Whole pixels: origin rounds down, size rounds to nearest, so 0.9 of 1000 px is exactly 900 px.
         let x = max(0, min(w - 2, Int((options.cropX * Double(w)).rounded(.down))))
-        let y = max(0, min(h - 2, Int(((1.0 - options.cropY - options.cropHeight) * Double(h)).rounded(.down))))
+        let y = max(0, min(h - 2, Int((options.cropY * Double(h)).rounded(.down))))
         let cw = max(2, min(w - x, Int((options.cropWidth * Double(w)).rounded())))
         let ch = max(2, min(h - y, Int((options.cropHeight * Double(h)).rounded())))
 
@@ -1816,8 +1816,9 @@ final class ConversionEngine {
         guard !ff.isEmpty else { return .failure("ffmpeg is required to crop video.") }
         let ext = file.pathExtension.isEmpty ? "mp4" : file.pathExtension
         let out = outputURL(for: file, ext: ext, suffix: "-cropped", forceUnique: true)
+        // H.264/HEVC need even dimensions; round the size down to even pixels.
         let filter = String(
-            format: "crop=iw*%.3f:ih*%.3f:iw*%.3f:ih*%.3f",
+            format: "crop=trunc(iw*%.5f/2)*2:trunc(ih*%.5f/2)*2:trunc(iw*%.5f):trunc(ih*%.5f)",
             options.cropWidth, options.cropHeight, options.cropX, options.cropY
         )
         // WebM and Matroska cannot carry AAC, so their audio is re-encoded to Opus.
