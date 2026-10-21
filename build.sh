@@ -3,10 +3,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-swift build -c release
+ARCHS=(--arch arm64 --arch x86_64)
+swift build -c release "${ARCHS[@]}"
 
 APP=build/Daisy.app
-BIN=.build/release/Daisy
+BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/Daisy"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -21,8 +22,8 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundleName</key><string>Daisy</string>
     <key>CFBundleDisplayName</key><string>Daisy</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>LSUIElement</key><true/>

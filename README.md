@@ -24,11 +24,26 @@ No paywall, no usage counting, no purchase service — everything is free.
 | Settings window (Themes, Shortcuts, Formats, Compatibility, Tools) | ✅ `SettingsWindowController` | 4-tab settings with format compatibility matrix |
 | Free uses + one-time purchase (RevenueCat) | ❌ removed | 100% open-source & unlocked |
 
+## Install
+
+1. Download `Daisy-<version>.dmg` from
+   [Releases](https://github.com/kpostaagasi/daisy/releases/latest).
+2. Open it and drag **Daisy** onto **Applications**.
+3. Daisy is ad-hoc signed (not notarized), so macOS blocks the first launch.
+   Either right-click Daisy → **Open** → **Open**, or run:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Daisy.app
+   ```
+
+Universal binary (Apple silicon + Intel), macOS 13+.
+
 ## Build
 
 ```bash
-./build.sh          # swift build + assemble build/Daisy.app + ad-hoc sign
+./build.sh          # universal swift build + assemble build/Daisy.app + ad-hoc sign
 open build/Daisy.app
+./make-dmg.sh       # build + package build/Daisy-<version>.dmg
 ```
 
 Requires Xcode and macOS 13+.
