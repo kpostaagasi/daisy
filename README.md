@@ -1,3 +1,5 @@
+<p align="center"><img src="Resources/AppIcon.svg" width="128" alt="Daisy icon"></p>
+
 # Daisy
 
 Daisy is an open-source, fully unlocked, configurable alternative to the
@@ -44,6 +46,7 @@ Universal binary (Apple silicon + Intel), macOS 13+.
 ./build.sh          # universal swift build + assemble build/Daisy.app + ad-hoc sign
 open build/Daisy.app
 ./make-dmg.sh       # build + package build/Daisy-<version>.dmg
+./make-icon.sh      # regenerate Resources/AppIcon.icns from Resources/AppIcon.svg
 ```
 
 Requires Xcode and macOS 13+.

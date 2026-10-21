@@ -22,6 +22,7 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundleName</key><string>Daisy</string>
     <key>CFBundleDisplayName</key><string>Daisy</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleShortVersionString</key><string>0.2.0</string>
     <key>CFBundleVersion</key><string>2</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
@@ -34,6 +35,7 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
 EOF
 
 cp "$BIN" "$APP/Contents/MacOS/Daisy"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP"
 
 echo "Built $APP"
