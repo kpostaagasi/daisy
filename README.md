@@ -7,28 +7,22 @@ them onto a blooming "fan" of conversion targets.
 
 No paywall, no usage counting, no purchase service — everything is free.
 
-## Status (v0.1.0)
+## Status (v0.2.0)
 
 | Tangerine feature | Daisy | Notes |
 | --- | --- | --- |
-| Floating drop panel (menu-bar, glass) | ✅ `FanPanelView` | NSPanel + `NSVisualEffectView` hud material |
-| Fan of conversion targets | ✅ 11 petals | expand on drag-enter |
-| WebP conversion | ✅ | `cwebp` |
-| JPEG / PNG / HEIC conversion | ✅ | CoreGraphics + ImageIO (no external tools) |
-| MP4 / MP3 / WAV conversion | ✅ | `ffmpeg` |
-| GIF conversion | ✅ | `ffmpeg` (12 fps, scaled to 640px) |
-| Strip metadata | ✅ | `exiftool -all=` |
-| Copy file to clipboard | ✅ | `NSPasteboard` |
-| Reveal in Finder | ✅ | `NSWorkspace` |
-| Settings window (tool paths, output folder, timeout) | ✅ | overrides Homebrew auto-detection |
-| Free uses + one-time purchase (RevenueCat) | ❌ removed | open-source alternative |
-| Welcome window, login item | 🚧 roadmap | |
-| Hover-drag detection while dragging from other apps | 🚧 | current: drop/hub staging |
-| Photo annotation | 🚧 roadmap | |
-| Video trim / bleep / redaction | 🚧 roadmap | |
-| QR code decode | 🚧 roadmap | |
-| Documents (EPUB/DOCX/Pages) → PDF | 🚧 roadmap | |
-| Fan highlight sound | 🚧 roadmap | |
+| Global drag shortcut detector (`DragGestureMonitor`) | ✅ `DragGestureMonitor` | Polls drag pasteboard + `⌥` / `⌘` / `⌃` modifiers at 60Hz while dragging |
+| 3 Radial Fan Modes (`Conversions`, `Tools`, `Actions`) | ✅ `ConversionFanMode` | Context-aware petals filtered by dragged file types |
+| Annular sector petals (`FormatDropTarget`) | ✅ `FanView.swift` | 372×372 overlay at cursor, Glass & Metallic themes, center hub |
+| Fan highlight sound & haptics | ✅ `FanHighlightSoundPlayer` | Alignment haptics + audio tick on petal hover |
+| Floating File Shelf ("Float" & Paperclip tab) | ✅ `FloatingFileWindowController` | Edge-snapping collapsible shelf, QuickLook thumbnails, drag-out |
+| Operation progress HUD (`OrangeIndeterminateProgressView`) | ✅ `OperationProgressWindowController` | Floating glass progress bar + Finder reveal on completion |
+| Image, Audio, Video, Document, Subtitle, Archive conversions | ✅ `ConversionEngine` | 35+ formats (`WebP`, `PNG`, `JPG`, `HEIC`, `PDF`, `DOCX`, `MP4`, `GIF`, `MP3`, `WAV`, `SRT`, `VTT`, `ZIP`…) |
+| Interactive File Tools (`FileToolOptionsWindowController`) | ✅ `FileToolWindows.swift` | Compress, Strip Meta, Adjust, Frame, Crop, Annotate, Collage, Redact, Trim, Speed, Normalize, PDF Organize |
+| QR Code & Barcode scanner (`QRCodeResultsWindowController`) | ✅ `Vision` (`VNDetectBarcodesRequest`) | Scans images and multi-page PDFs with one-click Copy |
+| Welcome onboarding & Launch at Login (`SMAppService`) | ✅ `WelcomeWindowController` | Multi-step interactive guide + login item toggle |
+| Settings window (Themes, Shortcuts, Formats, Compatibility, Tools) | ✅ `SettingsWindowController` | 4-tab settings with format compatibility matrix |
+| Free uses + one-time purchase (RevenueCat) | ❌ removed | 100% open-source & unlocked |
 
 ## Build
 
@@ -55,16 +49,20 @@ override each path in Settings.
 ```
 Sources/Daisy/
   main.swift               entry, accessory activation policy
-  AppDelegate.swift        wires menu bar + panel + settings
-  AppSettings.swift        UserDefaults-backed settings
-  ConversionTarget.swift   fan petals (WebP…Reveal)
-  ConversionEngine.swift   dispatches each conversion
-  ToolRunner.swift         external process runner (timeout, captured output)
-  ToolLocator.swift        Homebrew auto-detection
-  FanView.swift            glass panel + petals + drag-and-drop routing
-  FloatingDropPanel.swift  NSPanel lifecycle + task status
-  MenuBarController.swift  status item, folder conversion, settings, quit
-  SettingsWindow.swift     settings UI
+  AppDelegate.swift        orchestrates wheels, drag monitor, floats, progress HUD, and tools
+  AppSettings.swift        UserDefaults-backed settings, themes, modifier shortcuts, LoginItemController
+  ConversionTarget.swift   formats (ConversionFormat), tools (FileTool), actions (ConversionFanAction)
+  ConversionEngine.swift   executes format conversions and file tools (CoreImage, CoreGraphics, PDFKit, Vision, ffmpeg, cwebp, exiftool)
+  ConversionTaskStore.swift active task tracking for menu bar status
+  DragGestureMonitor.swift global drag-and-modifier monitor (⌥ Conversions, ⌘ Tools, ⌃ Actions)
+  FanView.swift            372×372 radial fan with annular wedge petals (FormatDropTarget) & FanCenterLabelView
+  FloatingDropPanel.swift  ConversionOverlayPanel + OperationProgressWindowController & OrangeIndeterminateProgressView
+  FloatingFileShelf.swift  FloatingFileWindowController ("Float" shelf & edge paperclip tab) + Clipboard/Move/Terminal/AirDrop actions
+  FileToolWindows.swift    FileToolOptionsWindowController + QRCodeResultsWindowController
+  MenuBarController.swift  dynamic status bar menu + drag-on-icon receiver
+  SettingsWindow.swift     4-tab Settings UI + WelcomeWindowController onboarding
+  ToolLocator.swift        Homebrew & bundle tool auto-detection
+  ToolRunner.swift         external process runner with timeout & pipe draining
 ```
 
 ## How Tangerine was mapped

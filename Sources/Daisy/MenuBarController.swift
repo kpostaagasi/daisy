@@ -1,115 +1,237 @@
-// Daisy — the status bar menu: about the dropped files, settings, quit.
+// Daisy — status bar menu controller inspired by Tangerine's MenuBarController.
 import AppKit
 
-final class MenuBarController: NSObject {
-    private let engine: ConversionEngine
+final class StatusItemDropOverlayView: NSView {
+    var onFilesDragged: (([URL]) -> Void)?
+    var onMouseDown: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        frame.contains(point) ? self : nil
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] ?? []
+        if !urls.isEmpty {
+            onFilesDragged?(urls)
+        }
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        mouseDown(with: event)
+    }
+}
+
+final class MenuBarController: NSObject, NSMenuDelegate {
     private let store: ConversionTaskStore
     private var statusItem: NSStatusItem?
+    private let menu = NSMenu()
 
-    init(engine: ConversionEngine, store: ConversionTaskStore) {
-        self.engine = engine
+    var onOpenWheel: (([URL], ConversionFanMode, Bool) -> Void)?
+    var onCreateFloat: (() -> Void)?
+
+    init(store: ConversionTaskStore) {
         self.store = store
         super.init()
+        self.store.onChange = { [weak self] in
+            self?.updateStatusItemIcon()
+        }
     }
 
     func install() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(
-            systemSymbolName: "camera.macro",
-            accessibilityDescription: "Daisy"
-        )
-        item.menu = buildMenu()
-        statusItem = item
-    }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        menu.delegate = self
+        menu.autoenablesItems = false
+        item.menu = menu
 
-    private func buildMenu() -> NSMenu {
-        let menu = NSMenu()
+        if let button = item.button {
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+            button.toolTip = "Daisy"
+            button.setAccessibilityLabel("Daisy")
 
-        let title = NSMenuItem(title: "Daisy — flower fresh file tools", action: nil, keyEquivalent: "")
-        title.isEnabled = false
-        menu.addItem(title)
-
-        let stagedMenu = NSMenuItem(title: "Convert folder…", action: nil, keyEquivalent: "")
-        stagedMenu.submenu = folderMenu()
-        menu.addItem(stagedMenu)
-
-        menu.addItem(.separator())
-
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        let toolStatus = ToolLocator.toolStatus(AppSettings.shared)
-        let statusline = NSMenuItem(
-            title: toolStatus.allSatisfy(\.found)
-                ? "Tools: ffmpeg ✓ cwebp ✓ exiftool ✓"
-                : "Missing tools: " + toolStatus.filter { !$0.found }.map(\.name).joined(separator: " "),
-                action: nil,
-                keyEquivalent: ""
-        )
-        statusline.isEnabled = false
-        menu.addItem(statusline)
-
-        let installHint = NSMenuItem(
-            title: "brew install ffmpeg webp exiftool",
-            action: nil, keyEquivalent: ""
-        )
-        installHint.isEnabled = false
-        menu.addItem(installHint)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit Daisy", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-        return menu
-    }
-
-    /// Lets the user pick a folder of files, converts all of them to WebP.
-    private func folderMenu() -> NSMenu {
-        let submenu = NSMenu()
-        for target in ConversionTarget.fan {
-            let item = NSMenuItem(title: target.label, action: #selector(runFolderTarget(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = target.label
-            submenu.addItem(item)
+            let dropOverlay = StatusItemDropOverlayView(frame: button.bounds)
+            dropOverlay.autoresizingMask = [.width, .height]
+            dropOverlay.onFilesDragged = { [weak self] urls in
+                self?.onOpenWheel?(urls, .conversions, false)
+            }
+            dropOverlay.onMouseDown = { [weak item] in item?.button?.performClick(nil) }
+            button.addSubview(dropOverlay)
         }
-        return submenu
+
+        statusItem = item
+        updateStatusItemIcon()
     }
 
-    @objc func runFolderTarget(_ sender: NSMenuItem) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = true
-        guard panel.runModal() == .OK else { return }
+    private func updateStatusItemIcon() {
+        guard let button = statusItem?.button else { return }
+        let symbolName = store.isBusy ? "arrow.triangle.2.circlepath.circle.fill" : "camera.macro"
+        let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Daisy")
+        img?.isTemplate = true
+        button.image = img
+    }
 
-        guard let target = ConversionTarget.fan.first(where: { $0.label == sender.representedObject as? String })
-        else { return }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
 
-        store.isBusy = true
-        let files = panel.urls
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let result = self.engine.convert(files: files, target: target)
-            DispatchQueue.main.async {
-                if case .success(let urls) = result {
-                    self.store.lastResult = "Converted \(urls.count) file(s)"
-                    self.store.succeeded = true
-                } else if case .failure(let message) = result {
-                    self.store.lastResult = message
-                    self.store.succeeded = false
-                }
-                self.store.isBusy = false
+        // 1. Status row (matching Tangerine at 0x10029ed84: "Daisy is ready" / "Daisy is working")
+        let statusTitle = store.isBusy ? "Daisy is working" : "Daisy is ready"
+        let statusSymbol = store.isBusy ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+        let statusItemRow = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
+        statusItemRow.isEnabled = false
+        statusItemRow.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: statusTitle)
+        menu.addItem(statusItemRow)
+
+        if !store.lastResult.isEmpty {
+            let lastRow = NSMenuItem(title: store.lastResult, action: nil, keyEquivalent: "")
+            lastRow.isEnabled = false
+            lastRow.indentationLevel = 1
+            menu.addItem(lastRow)
+        }
+
+        // 2. Active Tasks section (matching Tangerine at 0x10029f17c..0x10029fa60)
+        if !store.activeTasks.isEmpty {
+            menu.addItem(.separator())
+            let activeHeader = NSMenuItem(title: "Active Tasks", action: nil, keyEquivalent: "")
+            activeHeader.isEnabled = false
+            menu.addItem(activeHeader)
+
+            for task in store.activeTasks {
+                let truncatedSource = task.sourceName.count > 38
+                    ? String(task.sourceName.prefix(35)) + "…"
+                    : task.sourceName
+                let rowTitle = "\(truncatedSource)  →  \(task.targetTitle)"
+                let row = NSMenuItem(title: rowTitle, action: nil, keyEquivalent: "")
+                row.isEnabled = false
+                row.indentationLevel = 1
+                row.toolTip = "\(task.sourceName) → \(task.targetTitle)"
+                row.image = NSImage(
+                    systemSymbolName: "arrow.triangle.2.circlepath",
+                    accessibilityDescription: "Active conversion"
+                )
+                menu.addItem(row)
             }
         }
+
+        menu.addItem(.separator())
+
+        // 3. Wheel & Float shelf launchers
+        let settings = AppSettings.shared
+        let convMod = DragModifierCombination(mask: settings.conversionDragModifierMask).symbolsString
+        let toolsMod = DragModifierCombination(mask: settings.toolsDragModifierMask).symbolsString
+        let actMod = DragModifierCombination(mask: settings.actionsDragModifierMask).symbolsString
+
+        let convItem = NSMenuItem(
+            title: "Conversion Wheel (\(convMod) While Dragging)",
+            action: #selector(openConversionWheel),
+            keyEquivalent: ""
+        )
+        convItem.target = self
+        convItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        menu.addItem(convItem)
+
+        let toolsItem = NSMenuItem(
+            title: "File Tools Wheel (\(toolsMod) While Dragging)",
+            action: #selector(openToolsWheel),
+            keyEquivalent: ""
+        )
+        toolsItem.target = self
+        toolsItem.image = NSImage(systemSymbolName: "wrench.and.screwdriver", accessibilityDescription: nil)
+        menu.addItem(toolsItem)
+
+        let actionsItem = NSMenuItem(
+            title: "File Actions Wheel (\(actMod) While Dragging)",
+            action: #selector(openActionsWheel),
+            keyEquivalent: ""
+        )
+        actionsItem.target = self
+        actionsItem.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
+        menu.addItem(actionsItem)
+
+        let floatItem = NSMenuItem(
+            title: "New Float Shelf…",
+            action: #selector(createNewFloat),
+            keyEquivalent: ""
+        )
+        floatItem.target = self
+        floatItem.image = NSImage(systemSymbolName: "paperclip", accessibilityDescription: nil)
+        menu.addItem(floatItem)
+
+        menu.addItem(.separator())
+
+        // 4. Settings, Getting Started, About, Quit (matching Tangerine at 0x10029f2ac..0x10029f700)
+        let settingsRow = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsRow.target = self
+        settingsRow.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
+        menu.addItem(settingsRow)
+
+        let welcomeRow = NSMenuItem(title: "Getting Started…", action: #selector(openWelcome), keyEquivalent: "")
+        welcomeRow.target = self
+        welcomeRow.image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Getting Started")
+        menu.addItem(welcomeRow)
+
+        let aboutRow = NSMenuItem(title: "About Daisy", action: #selector(showAbout), keyEquivalent: "")
+        aboutRow.target = self
+        menu.addItem(aboutRow)
+
+        menu.addItem(.separator())
+
+        let quitRow = NSMenuItem(title: "Quit Daisy", action: #selector(quit), keyEquivalent: "q")
+        quitRow.target = self
+        menu.addItem(quitRow)
     }
 
-    @objc func openSettings() {
+    @objc private func openConversionWheel() {
+        onOpenWheel?([], .conversions, false)
+    }
+
+    @objc private func openToolsWheel() {
+        onOpenWheel?([], .fileTools, false)
+    }
+
+    @objc private func openActionsWheel() {
+        onOpenWheel?([], .fileActions, false)
+    }
+
+    @objc private func createNewFloat() {
+        onCreateFloat?()
+    }
+
+    @objc private func openSettings() {
         NotificationCenter.default.post(name: .daisyOpenSettings, object: nil)
     }
 
-    @objc func quit() {
+    @objc private func openWelcome() {
+        NotificationCenter.default.post(name: .daisyOpenWelcome, object: nil)
+    }
+
+    @objc private func showAbout() {
+        NSApp.orderFrontStandardAboutPanel(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func quit() {
         NSApp.terminate(nil)
     }
 }
