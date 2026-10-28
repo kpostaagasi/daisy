@@ -5,6 +5,7 @@ import CoreImage
 import Foundation
 import PDFKit
 import Quartz
+import Vision
 
 final class ConversionEngine {
     private let settings: AppSettings
@@ -377,11 +378,32 @@ final class ConversionEngine {
 
     // MARK: - Documents, PDFs, Subtitles, Tables, Archives
 
-    private func renderPDFPage(_ page: PDFPage) -> CGImage? {
-        let box = page.bounds(for: .mediaBox)
-        let scale: CGFloat = 2.0
-        let w = max(1, Int(box.width * scale))
-        let h = max(1, Int(box.height * scale))
+    private func renderPDFPage(_ page: PDFPage, scale: CGFloat = 2.0) -> CGImage? {
+        // Viewers display the crop box, not the (often larger) media box, and a
+        // /Rotate entry swaps the displayed width and height. Ignoring either
+        // produces images with bleed/crop marks or clipped 90°/270° pages.
+        var boxKind: PDFDisplayBox = .cropBox
+        var box = page.bounds(for: boxKind)
+        if box.width < 1 || box.height < 1 {
+            boxKind = .mediaBox
+            box = page.bounds(for: boxKind)
+        }
+        guard box.width > 0, box.height > 0 else { return nil }
+
+        let rotation = ((page.rotation % 360) + 360) % 360
+        let displaySize = (rotation == 90 || rotation == 270)
+            ? CGSize(width: box.height, height: box.width)
+            : box.size
+
+        // Cap enormous pages so a malformed or poster-sized PDF cannot exhaust memory.
+        let maxPixels = 40_000_000.0
+        var effectiveScale = scale
+        let requestedPixels = displaySize.width * displaySize.height * effectiveScale * effectiveScale
+        if requestedPixels > maxPixels {
+            effectiveScale = sqrt(maxPixels / (displaySize.width * displaySize.height))
+        }
+        let w = max(1, Int((displaySize.width * effectiveScale).rounded()))
+        let h = max(1, Int((displaySize.height * effectiveScale).rounded()))
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(
                   data: nil, width: w, height: h,
@@ -393,8 +415,9 @@ final class ConversionEngine {
 
         ctx.setFillColor(NSColor.white.cgColor)
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        ctx.scaleBy(x: scale, y: scale)
-        page.draw(with: .mediaBox, to: ctx)
+        ctx.scaleBy(x: effectiveScale, y: effectiveScale)
+        // PDFPage.draw applies the page rotation and renders annotations as well.
+        page.draw(with: boxKind, to: ctx)
         return ctx.makeImage()
     }
 
@@ -404,9 +427,13 @@ final class ConversionEngine {
         format: ConversionFormat,
         options: ConversionOptions
     ) -> Result<[URL], ConversionError> {
-        guard let doc = PDFDocument(url: file), doc.pageCount > 0 else {
-            return .failure("This PDF cannot be read or is password-protected.")
+        guard let doc = PDFDocument(url: file) else {
+            return .failure("This PDF cannot be read.")
         }
+        if doc.isLocked, !doc.unlock(withPassword: "") {
+            return .failure("This PDF is password-protected.")
+        }
+        guard doc.pageCount > 0 else { return .failure("This PDF has no pages.") }
         let fm = FileManager.default
         let scratch = fm.temporaryDirectory.appendingPathComponent("daisy-pdf-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: scratch) }
@@ -572,10 +599,10 @@ final class ConversionEngine {
             }
             return .success(rendered)
         case .pdf?:
-            guard let doc = PDFDocument(url: file) else {
-                return .failure("This PDF cannot be read.")
+            switch pdfDocumentContent(file: file) {
+            case .success(let text): return .success(plainAttributed(text))
+            case .failure(let err): return .failure(err)
             }
-            return .success(plainAttributed(doc.string ?? ""))
         default:
             if let loaded = try? NSAttributedString(url: file, options: [:], documentAttributes: nil) {
                 return .success(loaded)
@@ -585,6 +612,83 @@ final class ConversionEngine {
             }
             return .failure("The source document could not be read.")
         }
+    }
+
+    /// Extracts text page by page. Image-only (scanned) PDFs are OCR'd with Vision
+    /// so converting them to TXT/MD/HTML/DOCX yields content instead of empty files.
+    private func pdfDocumentContent(file: URL) -> Result<String, ConversionError> {
+        guard let doc = PDFDocument(url: file) else {
+            return .failure("This PDF cannot be read.")
+        }
+        if doc.isLocked, !doc.unlock(withPassword: "") {
+            return .failure("This PDF is password-protected.")
+        }
+        guard doc.pageCount > 0 else { return .failure("This PDF has no pages.") }
+        let pages = (0..<doc.pageCount).compactMap { doc.page(at: $0) }
+        guard !pages.isEmpty else { return .failure("This PDF has no pages.") }
+
+        let extracted = pages.map { ($0.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let textCharacters = extracted.reduce(0) { $0 + $1.count }
+        // A few characters (page numbers, a header) do not make a scan searchable.
+        let likelyScanned = textCharacters < max(20, pages.count * 10)
+
+        var pageTexts = extracted
+        if likelyScanned {
+            let recognized = pages.map { recognizeText(in: $0) ?? "" }
+            if recognized.contains(where: { !$0.isEmpty }) {
+                // Keep any text layer the recognizer missed.
+                pageTexts = zip(recognized, extracted).map { ocr, text in ocr.isEmpty ? text : ocr }
+            }
+        }
+
+        let text = pageTexts
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return .failure(likelyScanned
+                ? "No text could be recognized in this scanned PDF."
+                : "This PDF has no extractable text.")
+        }
+        return .success(text + "\n")
+    }
+
+    /// Runs on-device Vision text recognition on a rendered page. Used only when a
+    /// PDF has no usable text layer, so text-based conversions are not blank.
+    private func recognizeText(in page: PDFPage) -> String? {
+        guard let image = renderPDFPage(page, scale: 3.0) else { return nil }
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+
+        var observations: [VNRecognizedTextObservation] = []
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        if #available(macOS 13.0, *) {
+            request.automaticallyDetectsLanguage = true
+        }
+        if (try? handler.perform([request])) != nil {
+            observations = request.results ?? []
+        }
+
+        // Language auto-detection is unavailable or unsupported on some Macs.
+        if observations.isEmpty {
+            let fallback = VNRecognizeTextRequest()
+            fallback.recognitionLevel = .accurate
+            fallback.usesLanguageCorrection = true
+            fallback.recognitionLanguages = ["en-US"]
+            if (try? handler.perform([fallback])) != nil {
+                observations = fallback.results ?? []
+            }
+        }
+
+        // Vision returns observations in reading order; re-sorting by y would
+        // interleave multi-column layouts and certificate fields.
+        let lines = observations.compactMap { observation -> String? in
+            guard let candidate = observation.topCandidates(1).first else { return nil }
+            let line = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return line.isEmpty ? nil : line
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     private func plainAttributed(_ text: String) -> NSAttributedString {
